@@ -17,10 +17,14 @@ if (mongoURI) {
   console.warn('WARNUNG: MONGODB_URI ist nicht in den Environment Variables gesetzt!');
 }
 
-// Mongoose Schema für Accounts
+// Schema für Mongoose-Accounts
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
-  password: { type: String, required: true }
+  password: { type: String, required: true },
+  avatar: { type: String },
+  status: { type: String, default: 'online' },
+  is_owner: { type: Boolean, default: false },
+  verified: { type: Boolean, default: false }
 });
 
 const User = mongoose.model('User', userSchema);
@@ -32,8 +36,6 @@ const io = new Server(server);
 const db = new Database("nexus-chat.db");
 const JWT_SECRET = process.env.JWT_SECRET || "change-me-in-production";
 
-// Optionaler manueller Override: Owner per Umgebungsvariable erzwingen.
-// Standardmäßig wird aber automatisch der ERSTE registrierte Account zum Owner.
 const FORCE_OWNER_USERNAME = process.env.OWNER_USERNAME || null;
 
 db.exec(`
@@ -76,7 +78,7 @@ function avatarFor(name) {
 }
 function publicUser(u) {
   if (!u) return null;
-  return { id: u.id, username: u.username, avatar: u.avatar, status: u.status, isOwner: !!u.is_owner, verified: !!u.verified };
+  return { id: u.id || u._id, username: u.username, avatar: u.avatar, status: u.status, isOwner: !!u.is_owner, verified: !!u.verified };
 }
 function messageWithReactions(row) {
   const reactions = db.prepare("SELECT emoji, COUNT(*) c FROM reactions WHERE message_id=? GROUP BY emoji").all(row.id);
@@ -101,47 +103,92 @@ function requireOwner(req, res, next) {
   next();
 }
 
-// ---------- Auth ----------
-app.post("/api/register", (req, res) => {
+// ---------- Auth (mit MongoDB & SQLite-Sync) ----------
+app.post("/api/register", async (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password || username.length < 2 || password.length < 4) {
     return res.status(400).json({ error: "Benutzername (min. 2) und Passwort (min. 4 Zeichen) erforderlich" });
   }
+
   try {
-    const noUsersYet = db.prepare("SELECT COUNT(*) c FROM users").get().c === 0;
+    const existingMongoUser = await User.findOne({ username });
+    if (existingMongoUser) {
+      return res.status(409).json({ error: "Benutzername bereits vergeben" });
+    }
+
+    const countUsers = await User.countDocuments();
+    const noUsersYet = countUsers === 0;
     const makeOwner = noUsersYet || (FORCE_OWNER_USERNAME && username === FORCE_OWNER_USERNAME);
     const hash = bcrypt.hashSync(password, 10);
-    const r = db.prepare("INSERT INTO users(username,password,avatar,is_owner,verified) VALUES(?,?,?,?,?)")
-      .run(username, hash, avatarFor(username), makeOwner ? 1 : 0, makeOwner ? 1 : 0);
+    const avatarUrl = avatarFor(username);
 
-    if (makeOwner) {
-      // Allererster Account: legt automatisch die erste Community an und wird deren Owner.
-      const s = db.prepare("INSERT INTO servers(name,owner_id) VALUES(?,?)").run("Meine Community", r.lastInsertRowid);
-      db.prepare("INSERT INTO memberships(server_id,user_id,role) VALUES(?,?,?)").run(s.lastInsertRowid, r.lastInsertRowid, "owner");
-      for (const [chName, type] of [["allgemein", "text"], ["memes", "text"], ["Lounge", "voice"]]) {
-        db.prepare("INSERT INTO channels(server_id,name,type) VALUES(?,?,?)").run(s.lastInsertRowid, chName, type);
+    // in MongoDB speichern
+    const newMongoUser = new User({
+      username,
+      password: hash,
+      avatar: avatarUrl,
+      is_owner: makeOwner,
+      verified: makeOwner
+    });
+    await newMongoUser.save();
+
+    // in SQLite synchronisieren
+    let r = db.prepare("SELECT id FROM users WHERE username=?").get(username);
+    if (!r) {
+      r = db.prepare("INSERT INTO users(username,password,avatar,is_owner,verified) VALUES(?,?,?,?,?)")
+        .run(username, hash, avatarUrl, makeOwner ? 1 : 0, makeOwner ? 1 : 0);
+
+      if (makeOwner) {
+        const s = db.prepare("INSERT INTO servers(name,owner_id) VALUES(?,?)").run("Meine Community", r.lastInsertRowid);
+        db.prepare("INSERT INTO memberships(server_id,user_id,role) VALUES(?,?,?)").run(s.lastInsertRowid, r.lastInsertRowid, "owner");
+        for (const [chName, type] of [["allgemein", "text"], ["memes", "text"], ["Lounge", "voice"]]) {
+          db.prepare("INSERT INTO channels(server_id,name,type) VALUES(?,?,?)").run(s.lastInsertRowid, chName, type);
+        }
+      } else {
+        const existingServer = db.prepare("SELECT * FROM servers ORDER BY id LIMIT 1").get();
+        if (existingServer) {
+          db.prepare("INSERT OR IGNORE INTO memberships(server_id,user_id,role) VALUES(?,?,?)").run(existingServer.id, r.lastInsertRowid, "member");
+        }
       }
-    } else {
-      // Weitere Nutzer treten der ersten bestehenden Community bei.
+    }
+
+    const sqliteUser = db.prepare("SELECT * FROM users WHERE username=?").get(username);
+    const token = jwt.sign({ id: sqliteUser.id, username }, JWT_SECRET);
+    res.json({ token, user: publicUser(sqliteUser) });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Fehler bei der Registrierung" });
+  }
+});
+
+app.post("/api/login", async (req, res) => {
+  const { username, password } = req.body || {};
+  try {
+    // Zuerst in MongoDB suchen
+    const mongoUser = await User.findOne({ username });
+    if (!mongoUser || !bcrypt.compareSync(password || "", mongoUser.password)) {
+      return res.status(401).json({ error: "Benutzername oder Passwort falsch" });
+    }
+
+    // In SQLite sicherstellen
+    let sqliteUser = db.prepare("SELECT * FROM users WHERE username=?").get(username);
+    if (!sqliteUser) {
+      const r = db.prepare("INSERT INTO users(username,password,avatar,is_owner,verified) VALUES(?,?,?,?,?)")
+        .run(username, mongoUser.password, mongoUser.avatar, mongoUser.is_owner ? 1 : 0, mongoUser.verified ? 1 : 0);
+      
       const existingServer = db.prepare("SELECT * FROM servers ORDER BY id LIMIT 1").get();
       if (existingServer) {
         db.prepare("INSERT OR IGNORE INTO memberships(server_id,user_id,role) VALUES(?,?,?)").run(existingServer.id, r.lastInsertRowid, "member");
       }
+      sqliteUser = db.prepare("SELECT * FROM users WHERE id=?").get(r.lastInsertRowid);
     }
-    const token = jwt.sign({ id: r.lastInsertRowid, username }, JWT_SECRET);
-    res.json({ token, user: publicUser({ id: r.lastInsertRowid, username, avatar: avatarFor(username), status: "online", is_owner: makeOwner ? 1 : 0, verified: makeOwner ? 1 : 0 }) });
-  } catch (e) {
-    res.status(409).json({ error: "Benutzername bereits vergeben" });
-  }
-});
 
-app.post("/api/login", (req, res) => {
-  const u = db.prepare("SELECT * FROM users WHERE username=?").get(req.body?.username);
-  if (!u || !bcrypt.compareSync(req.body?.password || "", u.password)) {
-    return res.status(401).json({ error: "Benutzername oder Passwort falsch" });
+    db.prepare("UPDATE users SET status='online' WHERE id=?").run(sqliteUser.id);
+    res.json({ token: jwt.sign({ id: sqliteUser.id, username: sqliteUser.username }, JWT_SECRET), user: publicUser(sqliteUser) });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Fehler beim Login" });
   }
-  db.prepare("UPDATE users SET status='online' WHERE id=?").run(u.id);
-  res.json({ token: jwt.sign({ id: u.id, username: u.username }, JWT_SECRET), user: publicUser(u) });
 });
 
 // ---------- Bootstrap ----------
