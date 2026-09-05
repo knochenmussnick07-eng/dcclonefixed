@@ -1,3 +1,19 @@
+const mongoose = require('mongoose');
+
+// Liest die Adresse aus den Render Environment Variables
+const mongoURI = process.env.MONGODB_URI;
+
+mongoose.connect(mongoURI)
+  .then(() => console.log('Erfolgreich mit MongoDB Atlas verbunden!'))
+  .catch(err => console.error('Fehler bei MongoDB Verbindung:', err));
+
+// Schema für Accounts
+const userSchema = new mongoose.Schema({
+  username: { type: String, required: true, unique: true },
+  password: { type: String, required: true }
+});
+
+const User = mongoose.model('User', userSchema);
 import express from "express";
 import http from "http";
 import { Server } from "socket.io";
