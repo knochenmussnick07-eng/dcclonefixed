@@ -1,5 +1,6 @@
 import express from "express";
 import http from "http";
+import https from "https";
 import { Server } from "socket.io";
 import Database from "better-sqlite3";
 import bcrypt from "bcryptjs";
@@ -371,6 +372,15 @@ io.on("connection", (socket) => {
     db.prepare("UPDATE users SET status='offline' WHERE id=?").run(socket.user.id);
   });
 });
+
+// ---------- Keep-Alive Self-Ping für Render ----------
+setInterval(() => {
+  https.get("https://dcclonefixed.onrender.com", (res) => {
+    console.log("Keep-Alive Ping gesendet!");
+  }).on("error", (err) => {
+    console.error("Ping Fehler:", err.message);
+  });
+}, 10 * 60 * 1000); // Alle 10 Minuten (600.000 ms)
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log("Nexus Chat läuft auf http://localhost:" + PORT));
