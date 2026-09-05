@@ -1,31 +1,37 @@
-const mongoose = require('mongoose');
-
-// Liest die Adresse aus den Render Environment Variables
-const mongoURI = process.env.MONGODB_URI;
-
-mongoose.connect(mongoURI)
-  .then(() => console.log('Erfolgreich mit MongoDB Atlas verbunden!'))
-  .catch(err => console.error('Fehler bei MongoDB Verbindung:', err));
-
-// Schema für Accounts
-const userSchema = new mongoose.Schema({
-  username: { type: String, required: true, unique: true },
-  password: { type: String, required: true }
-});
-
-const User = mongoose.model('User', userSchema);
 import express from "express";
 import http from "http";
 import { Server } from "socket.io";
 import Database from "better-sqlite3";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import mongoose from "mongoose";
 
+// ---------- MongoDB Atlas Verbindung ----------
+const mongoURI = process.env.MONGODB_URI;
+
+if (mongoURI) {
+  mongoose.connect(mongoURI)
+    .then(() => console.log('Erfolgreich mit MongoDB Atlas verbunden!'))
+    .catch(err => console.error('Fehler bei MongoDB Verbindung:', err));
+} else {
+  console.warn('WARNUNG: MONGODB_URI ist nicht in den Environment Variables gesetzt!');
+}
+
+// Mongoose Schema für Accounts
+const userSchema = new mongoose.Schema({
+  username: { type: String, required: true, unique: true },
+  password: { type: String, required: true }
+});
+
+const User = mongoose.model('User', userSchema);
+
+// ---------- Server Setup ----------
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 const db = new Database("nexus-chat.db");
 const JWT_SECRET = process.env.JWT_SECRET || "change-me-in-production";
+
 // Optionaler manueller Override: Owner per Umgebungsvariable erzwingen.
 // Standardmäßig wird aber automatisch der ERSTE registrierte Account zum Owner.
 const FORCE_OWNER_USERNAME = process.env.OWNER_USERNAME || null;
@@ -207,10 +213,6 @@ app.get("/api/messages/:channelId", auth, (req, res) => {
   res.json(rows.map(messageWithReactions));
 });
 
-// Zusätzlich zum Socket-Weg: Nachrichten per normalem HTTP-Request senden.
-// Ein HTTP-Request weckt einen eingeschlafenen Free-Tier-Server (z.B. Render)
-// zuverlässiger auf als ein WebSocket-Verbindungsversuch, deshalb nutzt der
-// Client diesen Weg automatisch, solange der Socket nicht verbunden ist.
 app.post("/api/messages", auth, (req, res) => {
   const { channelId, content, clientId } = req.body || {};
   const text = (content || "").trim();
