@@ -6,6 +6,7 @@ import Database from "better-sqlite3";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
+import { ExpressPeerServer } from "peer";
 
 // ---------- MongoDB Atlas Verbindung ----------
 const mongoURI = process.env.MONGODB_URI;
@@ -38,6 +39,13 @@ const db = new Database("nexus-chat.db");
 const JWT_SECRET = process.env.JWT_SECRET || "change-me-in-production";
 
 const FORCE_OWNER_USERNAME = process.env.OWNER_USERNAME || null;
+
+// ---------- PeerJS Server für Voice-Channels ----------
+const peerServer = ExpressPeerServer(server, {
+  debug: true,
+  path: "/"
+});
+app.use("/peerjs", peerServer);
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS users(
@@ -228,7 +236,7 @@ app.post("/api/servers", auth, (req, res) => {
   const s = db.prepare("INSERT INTO servers(name,owner_id) VALUES(?,?)").run(name, req.user.id);
   db.prepare("INSERT INTO memberships(server_id,user_id,role) VALUES(?,?,?)").run(s.lastInsertRowid, req.user.id, "owner");
   db.prepare("INSERT INTO channels(server_id,name,type) VALUES(?,?,?)").run(s.lastInsertRowid, "allgemein", "text");
-  db.prepare("INSERT INTO channels(server_id,name,type) VALUES(?,?,?)").run(s.lastInsertRowid, "Allgemein", "voice");
+  db.prepare("INSERT INTO channels(server_id,name,type) VALUES(?,?,?)").run(s.lastInsertRowid, "Lounge", "voice");
   res.json({ id: s.lastInsertRowid });
 });
 
@@ -354,6 +362,17 @@ io.on("connection", (socket) => {
 
   socket.on("join_channel", (id) => socket.join(`channel:${id}`));
 
+  // Voice Channel Signaling
+  socket.on("join_voice_channel", ({ channelId, peerId }) => {
+    socket.join(`voice:${channelId}`);
+    socket.to(`voice:${channelId}`).emit("user_joined_voice", { userId: socket.user.id, username: socket.user.username, peerId });
+  });
+
+  socket.on("leave_voice_channel", ({ channelId, peerId }) => {
+    socket.leave(`voice:${channelId}`);
+    socket.to(`voice:${channelId}`).emit("user_left_voice", { userId: socket.user.id, peerId });
+  });
+
   socket.on("send_message", ({ channelId, content }) => {
     content = (content || "").trim();
     if (!content || !channelId) return;
@@ -380,7 +399,7 @@ setInterval(() => {
   }).on("error", (err) => {
     console.error("Ping Fehler:", err.message);
   });
-}, 10 * 60 * 1000); // Alle 10 Minuten (600.000 ms)
+}, 10 * 60 * 1000);
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log("Nexus Chat läuft auf http://localhost:" + PORT));
