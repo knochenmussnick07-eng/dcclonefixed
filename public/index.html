@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Nexus Chat</title>
 <link rel="stylesheet" href="/style.css" />
+<!-- PeerJS für Sprachkanäle laden -->
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body>
 
@@ -37,7 +39,16 @@
     <div id="serverHeader">
       <span id="serverName"></span>
     </div>
+    
+    <!-- Kanalliste -->
     <div id="channels"></div>
+    
+    <!-- Sprachkanal-Statusbar (Wird angezeigt, wenn man verbunden ist) -->
+    <div id="voiceControl" class="hidden" style="padding:10px; background:#111; color:#fff; display:flex; justify-content:space-between; align-items:center;">
+      <span id="voiceStatus">Verbunden im Sprachkanal</span>
+      <button id="leaveVoiceBtn" style="background:#e74c3c; border:none; padding:5px 10px; color:#fff; cursor:pointer; border-radius:4px;">Auflegen</button>
+    </div>
+
     <div id="ownerPanelToggle" class="hidden">⚙ Owner-Panel</div>
     <div id="mePanel">
       <img id="meAvatar" />
