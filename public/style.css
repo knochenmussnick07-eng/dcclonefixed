@@ -13,14 +13,33 @@
   --online:#5fd98a;
   --danger:#f0596b;
 }
+
 *{box-sizing:border-box; margin:0; padding:0;}
+
 body{
   font-family:"Inter","Segoe UI",system-ui,sans-serif;
-  background:var(--bg-rail); color:var(--text-hi); height:100vh; overflow:hidden; font-size:14px;
+  background:var(--bg-rail); 
+  color:var(--text-hi); 
+  height:100vh; 
+  overflow:hidden; 
+  font-size:14px;
 }
+
 .hidden{display:none !important;}
 button{font-family:inherit; cursor:pointer;}
-img.avatar{width:36px; height:36px; border-radius:50%; object-fit:cover; flex-shrink:0;}
+
+/* AVATAR FIX (Erzwingt feste Größen für ALLE Avatare) */
+img.avatar, .avatar, #meAvatar {
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  max-width: 32px !important;
+  max-height: 32px !important;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
 
 /* WAKING UP */
 #wakingUp{height:100vh; display:flex; align-items:center; justify-content:center; background:radial-gradient(circle at 30% 20%, #35304a, var(--bg-rail));}
@@ -81,7 +100,43 @@ img.avatar{width:36px; height:36px; border-radius:50%; object-fit:cover; flex-sh
 .channel .del{opacity:0; color:var(--danger); font-size:13px;}
 .channel:hover .del{opacity:1;}
 
-#ownerPanelToggle{margin:0 8px 10px; padding:9px 10px; text-align:center; background:linear-gradient(135deg,#4a3a1a,#5c4522); color:var(--owner); border-radius:8px; font-weight:600; font-size:13px; cursor:pointer;}
+/* VOICE CONTROL PANEL */
+#voiceControl {
+  background: #18171d !important;
+  border-top: 1px solid #ffffff10;
+  border-bottom: 1px solid #ffffff10;
+  padding: 8px 10px !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+  z-index: 10;
+}
+#voiceStatus {
+  font-size: 12px;
+  color: var(--online);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#leaveVoiceBtn {
+  background: var(--danger) !important;
+  color: #fff !important;
+  border: none !important;
+  padding: 5px 10px !important;
+  border-radius: 6px !important;
+  font-size: 12px !important;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+#leaveVoiceBtn:hover {
+  filter: brightness(1.15);
+}
+
+#ownerPanelToggle{margin:10px 8px 10px; padding:9px 10px; text-align:center; background:linear-gradient(135deg,#4a3a1a,#5c4522); color:var(--owner); border-radius:8px; font-weight:600; font-size:13px; cursor:pointer;}
 #ownerPanelToggle:hover{filter:brightness(1.15);}
 
 #mePanel{height:56px; background:#1e1d24; display:flex; align-items:center; gap:8px; padding:0 10px; flex-shrink:0;}
